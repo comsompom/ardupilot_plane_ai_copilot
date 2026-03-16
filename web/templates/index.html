@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container">
-  <section class="card config-section">
+  <section id="config" class="card config-section scroll-target">
     <h2>Configuration</h2>
     <div class="form-row">
       <label>Plane type</label>
@@ -34,7 +34,7 @@
     <p id="paramStatus" class="status"></p>
   </section>
 
-  <section class="card reports-section">
+  <section id="reports" class="card reports-section scroll-target">
     <h2>Reports</h2>
     <div class="tabs">
     {% for mode in modes %}
@@ -69,7 +69,7 @@
     {% endfor %}
   </section>
 
-  <section class="card mission-section">
+  <section id="mission" class="card mission-section scroll-target">
     <h2>Mission analysis</h2>
     <p class="hint">Upload a mission file (e.g. from Mission Planner) to get suggestions for your plane type.</p>
     <div class="form-row">
@@ -79,7 +79,7 @@
     <div id="missionResult" class="analysis-result"></div>
   </section>
 
-  <section class="card log-section">
+  <section id="log" class="card log-section scroll-target">
     <h2>Flight log analysis</h2>
     <p class="hint">Upload a flight log (.bin or .log) to get suggestions for future flights.</p>
     <div class="form-row">
@@ -89,7 +89,7 @@
     <div id="logResult" class="analysis-result"></div>
   </section>
 
-  <section class="card assistant-section">
+  <section id="assistant" class="card assistant-section scroll-target">
     <h2>AI Assistant</h2>
     <p class="hint">Ask about Manual, FBWA, AUTO, Autotune, or general ArduPilot params. When online and OPENAI_API_KEY is set, uses OpenAI; otherwise uses local Ollama or a keyword fallback.</p>
     <div class="chat-area">

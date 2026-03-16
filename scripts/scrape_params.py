@@ -17,48 +17,66 @@ sys.path.insert(0, str(ROOT))
 from config import ARDUPILOT_PARAMS_URL, PARAM_DB_PATH, DATA_DIR
 
 
+# Match parameter heading: "PARAM_NAME: Short description" (optional trailing ¶)
+_PARAM_HEADING_RE = re.compile(r"^([A-Z][A-Z0-9_]*):\s*(.*)$")
+
+
+def _parse_param_block_text(text: str) -> dict:
+    """Extract range and units from parameter block text (content after an h3)."""
+    out = {"range": "", "units": ""}
+    if not text:
+        return out
+    # Patterns: "Range" then value (e.g. "1 to 255"), "Units" then value (e.g. "seconds")
+    for label, key in (("Range", "range"), ("Units", "units")):
+        idx = text.find(label)
+        if idx == -1:
+            continue
+        rest = text[idx + len(label) :].strip()
+        # Take first line or up to next known label
+        for stop in ("Range", "Units", "Increment", "Values", "Bitmask", "Note:"):
+            if stop != label and stop in rest:
+                end = rest.find(stop)
+                if end != -1:
+                    rest = rest[:end].strip()
+        # First line or first segment
+        first_line = rest.split("\n")[0].strip() if "\n" in rest else rest
+        first_line = first_line.split("  ")[0].strip()
+        if first_line and not first_line.startswith("Bit ") and len(first_line) < 80:
+            out[key] = first_line
+    return out
+
+
 def scrape_params(url: str = None) -> list:
     url = url or ARDUPILOT_PARAMS_URL
     r = requests.get(url, timeout=30)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
-    table = soup.find("table")
-    if not table:
-        # Try alternative: look for parameter list in divs
-        params = []
-        for row in soup.find_all("tr"):
-            cells = row.find_all(["td", "th"])
-            if len(cells) >= 3:
-                name_cell = cells[0].get_text(strip=True)
-                if name_cell and re.match(r"^[A-Z_0-9]+$", name_cell):
-                    desc = cells[1].get_text(strip=True) if len(cells) > 1 else ""
-                    default = cells[2].get_text(strip=True) if len(cells) > 2 else ""
-                    params.append({
-                        "name": name_cell,
-                        "description": desc,
-                        "default": default,
-                        "range": cells[3].get_text(strip=True) if len(cells) > 3 else "",
-                        "units": cells[4].get_text(strip=True) if len(cells) > 4 else "",
-                    })
-        return params
     params = []
-    rows = table.find_all("tr")
-    headers = [th.get_text(strip=True).lower() for th in rows[0].find_all("th")] if rows else []
-    for row in rows[1:]:
-        cells = row.find_all(["td", "th"])
-        if len(cells) < 2:
+    # ArduPilot params page uses one <h3> per parameter (not a single big table).
+    # The first <table> on the page is a small "Range" table inside a param block.
+    for h3 in soup.find_all("h3"):
+        raw = h3.get_text(strip=True).strip("\u00b6")  # strip ¶
+        m = _PARAM_HEADING_RE.match(raw)
+        if not m:
             continue
-        name = cells[0].get_text(strip=True)
-        if not name or not re.match(r"^[A-Z_0-9]+$", name):
+        name, desc = m.group(1), m.group(2).strip()
+        if not name:
             continue
-        d = {"name": name}
-        for i, h in enumerate(headers[1:], 1):
-            if i < len(cells):
-                d[h] = cells[i].get_text(strip=True)
-        if "description" not in d and len(cells) > 1:
-            d["description"] = cells[1].get_text(strip=True)
-        if "default" not in d and len(cells) > 2:
-            d["default"] = cells[2].get_text(strip=True)
+        d = {"name": name, "description": desc or "", "default": "", "range": "", "units": ""}
+        # Optional: parse following siblings for range/units
+        nxt = h3.find_next_sibling()
+        if nxt and nxt.name != "h3":
+            block = []
+            s = nxt
+            for _ in range(25):
+                if s is None or s.name == "h3":
+                    break
+                block.append(s.get_text(separator=" ", strip=True))
+                s = s.find_next_sibling()
+            combined = " ".join(block)
+            extra = _parse_param_block_text(combined)
+            d["range"] = extra["range"] or d["range"]
+            d["units"] = extra["units"] or d["units"]
         params.append(d)
     return params
 

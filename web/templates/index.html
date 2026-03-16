@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+  <section class="card config-section">
+    <h2>Configuration</h2>
+    <div class="form-row">
+      <label>Plane type</label>
+      <select id="planeType">
+        {% for t in plane_types %}
+        <option value="{{ t.id }}">{{ t.name }} — {{ t.description }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Wingspan (m)</label>
+      <input type="number" id="wingspan" step="0.01" placeholder="e.g. 1.2">
+    </div>
+    <div class="form-row">
+      <label>Weight (kg)</label>
+      <input type="number" id="weight" step="0.01" placeholder="e.g. 0.8">
+    </div>
+    <div class="form-row">
+      <label>Parameters</label>
+      <div class="param-inputs">
+        <input type="file" id="paramFile" accept=".param,.txt,.parm">
+        <span class="or">or</span>
+        <input type="text" id="mavlinkConn" placeholder="udp:127.0.0.1:14550">
+        <button type="button" id="fetchParams">Fetch via MAVLink</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <button type="button" id="compareBtn" class="btn primary">Compare &amp; Generate Reports</button>
+    </div>
+    <p id="paramStatus" class="status"></p>
+  </section>
+
+  <section class="card reports-section">
+    <h2>Reports</h2>
+    <div class="tabs">
+    {% for mode in modes %}
+    <button type="button" class="tab" data-mode="{{ mode }}" {% if loop.first %}aria-selected="true"{% endif %}>{{ mode }}</button>
+    {% endfor %}
+    </div>
+    {% for mode in modes %}
+    <div class="tab-panel" id="panel-{{ mode }}" data-mode="{{ mode }}" {% if not loop.first %}hidden{% endif %}>
+      <div class="report-actions">
+        <button type="button" class="btn export" data-format="html" data-mode="{{ mode }}">Export HTML</button>
+        <button type="button" class="btn export" data-format="pdf" data-mode="{{ mode }}">Export PDF</button>
+        <button type="button" class="btn export" data-format="txt" data-mode="{{ mode }}">Export TXT</button>
+      </div>
+      <div class="table-wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th>Current</th>
+              <th>Recommended</th>
+              <th>Severity</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-{{ mode }}">
+            <tr><td colspan="5">Run Compare to load report.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="summary" id="summary-{{ mode }}"></p>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="card mission-section">
+    <h2>Mission analysis</h2>
+    <p class="hint">Upload a mission file (e.g. from Mission Planner) to get suggestions for your plane type.</p>
+    <div class="form-row">
+      <input type="file" id="missionFile" accept=".waypoints,.plan,.txt">
+      <button type="button" id="analyzeMission" class="btn primary">Analyze mission</button>
+    </div>
+    <div id="missionResult" class="analysis-result"></div>
+  </section>
+
+  <section class="card log-section">
+    <h2>Flight log analysis</h2>
+    <p class="hint">Upload a flight log (.bin or .log) to get suggestions for future flights.</p>
+    <div class="form-row">
+      <input type="file" id="logFile" accept=".bin,.log">
+      <button type="button" id="analyzeLog" class="btn primary">Analyze log</button>
+    </div>
+    <div id="logResult" class="analysis-result"></div>
+  </section>
+
+  <section class="card assistant-section">
+    <h2>AI Assistant</h2>
+    <p class="hint">Ask about Manual, FBWA, AUTO, Autotune, or general ArduPilot params. When online and OPENAI_API_KEY is set, uses OpenAI; otherwise uses local Ollama or a keyword fallback.</p>
+    <div class="chat-area">
+      <div id="chatMessages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <input type="text" id="assistantQuestion" placeholder="e.g. Why is my plane oscillating in FBWA?">
+        <button type="button" id="askBtn" class="btn primary">Ask</button>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MODES = {{ modes | tojson }};
+let currentParams = {};
+let currentReports = {};
+
+document.querySelectorAll('.tab').forEach((btn, i) => {
+  if (i === 0) btn.classList.add('active');
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.setAttribute('hidden', ''));
+    btn.classList.add('active');
+    const panel = document.getElementById('panel-' + btn.dataset.mode);
+    if (panel) panel.removeAttribute('hidden');
+  });
+});
+
+document.getElementById('paramFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
+  try {
+    const r = await fetch('/api/params/upload', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (j.params) {
+      currentParams = j.params;
+      document.getElementById('paramStatus').textContent = `Loaded ${j.count} parameters from file.`;
+    } else {
+      document.getElementById('paramStatus').textContent = 'Upload failed: ' + (j.error || r.status);
+    }
+  } catch (err) {
+    document.getElementById('paramStatus').textContent = 'Error: ' + err.message;
+  }
+});
+
+document.getElementById('fetchParams').addEventListener('click', async () => {
+  const conn = document.getElementById('mavlinkConn').value.trim();
+  if (!conn) {
+    document.getElementById('paramStatus').textContent = 'Enter MAVLink connection (e.g. udp:127.0.0.1:14550)';
+    return;
+  }
+  document.getElementById('paramStatus').textContent = 'Fetching...';
+  try {
+    const r = await fetch('/api/params/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connection: conn })
+    });
+    const j = await r.json();
+    if (j.params) {
+      currentParams = j.params;
+      document.getElementById('paramStatus').textContent = `Fetched ${j.count} parameters via MAVLink.`;
+    } else {
+      document.getElementById('paramStatus').textContent = 'Fetch failed: ' + (j.error || r.status);
+    }
+  } catch (err) {
+    document.getElementById('paramStatus').textContent = 'Error: ' + err.message;
+  }
+});
+
+document.getElementById('compareBtn').addEventListener('click', async () => {
+  if (Object.keys(currentParams).length === 0) {
+    document.getElementById('paramStatus').textContent = 'Load or fetch parameters first.';
+    return;
+  }
+  const planeTypeId = document.getElementById('planeType').value;
+  const wingspan = document.getElementById('wingspan').value;
+  const weight = document.getElementById('weight').value;
+  document.getElementById('paramStatus').textContent = 'Comparing...';
+  try {
+    const r = await fetch('/api/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        params: currentParams,
+        plane_type_id: planeTypeId,
+        wingspan_m: wingspan || null,
+        weight_kg: weight || null
+      })
+    });
+    const j = await r.json();
+    if (j.reports) {
+      currentReports = j.reports;
+      MODES.forEach(mode => {
+        const report = j.reports[mode];
+        if (!report) return;
+        const tbody = document.getElementById('tbody-' + mode);
+        tbody.innerHTML = '';
+        (report.rows || []).forEach(row => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${escapeHtml(row.parameter)}</td><td>${row.current_value != null ? row.current_value : '—'}</td><td>${escapeHtml(String(row.recommended))}</td><td><span class="sev-${(row.severity || '').toLowerCase()}">${escapeHtml(row.severity)}</span></td><td>${escapeHtml(row.action)}</td>`;
+          tbody.appendChild(tr);
+        });
+        const s = report.summary || {};
+        document.getElementById('summary-' + mode).textContent = `Total: ${s.total || 0} | OK: ${s.ok || 0} | Warning: ${s.warning || 0} | Change: ${s.change || 0}`;
+      });
+      document.querySelector('.tab').click();
+      document.getElementById('paramStatus').textContent = 'Reports generated.';
+    } else {
+      document.getElementById('paramStatus').textContent = 'Compare failed: ' + (j.error || r.status);
+    }
+  } catch (err) {
+    document.getElementById('paramStatus').textContent = 'Error: ' + err.message;
+  }
+});
+
+document.querySelectorAll('.export').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const mode = btn.dataset.mode;
+    const format = btn.dataset.format;
+    const report = currentReports[mode];
+    if (!report || !report.rows || report.rows.length === 0) {
+      alert('No report for ' + mode + '. Run Compare first.');
+      return;
+    }
+    try {
+      const r = await fetch('/api/export/' + encodeURIComponent(mode), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report, format })
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j.error || r.statusText);
+        return;
+      }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `ardupilot_report_${mode}.${format === 'html' ? 'html' : format === 'pdf' ? 'pdf' : 'txt'}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      alert('Export failed: ' + err.message);
+    }
+  });
+});
+
+document.getElementById('askBtn').addEventListener('click', sendQuestion);
+document.getElementById('assistantQuestion').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendQuestion();
+});
+
+document.getElementById('analyzeMission').addEventListener('click', async () => {
+  const f = document.getElementById('missionFile').files[0];
+  if (!f) { document.getElementById('missionResult').innerHTML = '<p class="muted">Select a mission file first.</p>'; return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  fd.append('plane_type_id', document.getElementById('planeType').value);
+  const r = await fetch('/api/mission/analyze', { method: 'POST', body: fd });
+  const j = await r.json();
+  const el = document.getElementById('missionResult');
+  if (j.analysis) {
+    el.innerHTML = '<p><strong>' + escapeHtml(j.analysis.summary) + '</strong></p><ul>' +
+      (j.analysis.suggestions || []).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>';
+  } else {
+    el.innerHTML = '<p class="err">' + escapeHtml(j.error || 'Analysis failed') + '</p>';
+  }
+});
+
+document.getElementById('analyzeLog').addEventListener('click', async () => {
+  const f = document.getElementById('logFile').files[0];
+  if (!f) { document.getElementById('logResult').innerHTML = '<p class="muted">Select a log file first.</p>'; return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  const r = await fetch('/api/log/analyze', { method: 'POST', body: fd });
+  const j = await r.json();
+  const el = document.getElementById('logResult');
+  if (j.analysis) {
+    el.innerHTML = '<p><strong>' + escapeHtml(j.analysis.summary) + '</strong></p><ul>' +
+      (j.analysis.suggestions || []).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>';
+  } else {
+    el.innerHTML = '<p class="err">' + escapeHtml(j.error || 'Analysis failed') + '</p>';
+  }
+});
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function addChatMessage(role, text, source) {
+  const wrap = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  let html = '<div class="chat-text">' + escapeHtml(text) + '</div>';
+  if (source) html += '<div class="chat-meta">' + escapeHtml(source) + '</div>';
+  div.innerHTML = html;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+async function sendQuestion() {
+  const input = document.getElementById('assistantQuestion');
+  const question = input.value.trim();
+  if (!question) return;
+  addChatMessage('user', question);
+  input.value = '';
+  try {
+    const r = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        plane_type_id: document.getElementById('planeType').value,
+        params: currentParams,
+        report_summary: currentReports ? Object.keys(currentReports).reduce((acc, m) => {
+          acc[m] = currentReports[m].summary;
+          return acc;
+        }, {}) : {}
+      })
+    });
+    const j = await r.json();
+    const text = j.response || j.error || 'No response.';
+    addChatMessage('assistant', text, j.source ? 'Source: ' + j.source : null);
+  } catch (err) {
+    addChatMessage('assistant', 'Error: ' + err.message, null);
+  }
+}
+</script>
+{% endblock %}

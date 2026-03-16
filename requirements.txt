@@ -1,0 +1,41 @@
+# ArduPilot AI Assistant - Dependencies
+# Python 3.10+
+
+# Web
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# MAVLink / ArduPilot
+pymavlink>=2.4.40
+
+# Scraping & HTTP
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+httpx>=0.25.0
+
+# Data & DB
+# (stdlib: json, sqlite3)
+
+# Export
+jinja2>=3.1.0
+reportlab>=4.0.0
+
+# AI / RAG
+# OpenAI (used when OPENAI_API_KEY is set and online)
+openai>=1.0.0
+# Ollama Python client for local LLM
+ollama>=0.3.0
+# Embeddings for RAG (sentence-transformers - can use small model)
+sentence-transformers>=2.2.0
+# Optional: langchain for RAG pipeline
+# langchain>=0.1.0
+# langchain-community>=0.0.20
+
+# Standalone UI
+# PyQt6 or tkinter (tkinter is stdlib)
+
+# Flight log parsing (ArduPilot .bin)
+pymavlink  # already above - has log parsing
+
+# Utilities
+python-dotenv>=1.0.0

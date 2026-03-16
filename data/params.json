@@ -1,0 +1,32 @@
+{
+  "parameters": [
+    {"name": "SERVO_AUTO_TRIM", "description": "Enable automatic trim in FBWA", "default": "0", "range": "0-1"},
+    {"name": "FLTMODE1", "description": "Flight mode 1", "default": "0", "range": "0-17"},
+    {"name": "FLTMODE2", "description": "Flight mode 2", "default": "5", "range": "0-17"},
+    {"name": "FLTMODE3", "description": "Flight mode 3", "default": "10", "range": "0-17"},
+    {"name": "FLTMODE6", "description": "Flight mode 6 (Autotune)", "default": "6", "range": "0-17"},
+    {"name": "LIM_ROLL_CD", "description": "Roll limit centidegrees", "default": "3500", "range": "0-9000"},
+    {"name": "LIM_PITCH_MAX", "description": "Max pitch up centidegrees", "default": "2500", "range": "0-9000"},
+    {"name": "LIM_PITCH_MIN", "description": "Max pitch down centidegrees", "default": "-2500", "range": "-9000-0"},
+    {"name": "ARSPD_FBW_MIN", "description": "Min airspeed for FBW cm/s", "default": "1000", "range": "0-32767"},
+    {"name": "ARSPD_FBW_MAX", "description": "Max airspeed cm/s", "default": "3500", "range": "0-32767"},
+    {"name": "STALL_PREVENTION", "description": "Stall prevention in FBWA", "default": "1", "range": "0-1"},
+    {"name": "BATT_LOW_VOLT", "description": "Low voltage warning V", "default": "10.5", "range": "0-30"},
+    {"name": "BATT_CRT_VOLT", "description": "Critical voltage V", "default": "10.0", "range": "0-30"},
+    {"name": "WP_LOITER_RAD", "description": "Loiter radius cm", "default": "1500", "range": "100-10000"},
+    {"name": "WP_RADIUS", "description": "Waypoint radius cm", "default": "500", "range": "50-5000"},
+    {"name": "ALT_HOLD_RTL", "description": "RTL altitude cm", "default": "10000", "range": "0-100000"},
+    {"name": "RTL_ALTITUDE", "description": "RTL altitude cm", "default": "10000", "range": "0-100000"},
+    {"name": "FS_THR_ENABLE", "description": "Failsafe throttle enable", "default": "1", "range": "0-3"},
+    {"name": "FS_THR_VALUE", "description": "Throttle PWM at failsafe", "default": "0", "range": "0-2200"},
+    {"name": "AUTOTUNE_LEVEL", "description": "Autotune aggression", "default": "6", "range": "0-10"},
+    {"name": "STAB_PITCH_P", "description": "Pitch P gain", "default": "0.12", "range": "0-1"},
+    {"name": "STAB_PITCH_I", "description": "Pitch I gain", "default": "0.04", "range": "0-1"},
+    {"name": "STAB_PITCH_D", "description": "Pitch D gain", "default": "0.005", "range": "0-0.1"},
+    {"name": "STAB_ROLL_P", "description": "Roll P gain", "default": "0.12", "range": "0-1"},
+    {"name": "STAB_ROLL_I", "description": "Roll I gain", "default": "0.04", "range": "0-1"},
+    {"name": "STAB_ROLL_D", "description": "Roll D gain", "default": "0.005", "range": "0-0.1"}
+  ],
+  "version": "4.6.2",
+  "source": "built-in"
+}

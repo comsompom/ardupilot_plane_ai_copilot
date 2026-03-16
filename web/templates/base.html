@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ArduPilot AI Assistant{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="header">
+    <h1>ArduPilot AI Assistant</h1>
+    <p class="tagline">Pre-flight parameter audit &amp; AI assistant for Plane pilots</p>
+  </header>
+  <main class="main">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">
+    <p>HACKHAZARDS '26 — Built for ArduPilot Plane | Param comparison, reports, offline AI</p>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

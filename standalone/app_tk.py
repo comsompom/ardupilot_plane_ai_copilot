@@ -114,8 +114,25 @@ class ArduPilotStandaloneApp:
         ttk.Button(parent, text="Compare & Generate Reports", command=self._on_compare).grid(row=row, column=1, sticky=tk.W, pady=8)
         row += 1
 
-        self.config_status_var = tk.StringVar(value="Load parameters (file or MAVLink), then click Compare.")
-        ttk.Label(parent, textvariable=self.config_status_var, foreground="gray", wraplength=500).grid(row=row, column=1, sticky=tk.W)
+        help_f = ttk.Frame(parent)
+        help_f.grid(row=row, column=1, sticky=tk.W)
+        self.btn_ai_analysis = ttk.Button(help_f, text="Get AI analysis of file", command=self._on_ai_analysis_file, state=tk.DISABLED)
+        self.btn_ai_analysis.pack(side=tk.LEFT, padx=(0, 8))
+        row += 1
+
+        self.config_status_var = tk.StringVar(value="Load a .param file or fetch via MAVLink, then click Compare to generate reports.")
+        ttk.Label(parent, textvariable=self.config_status_var, foreground="gray", wraplength=520).grid(row=row, column=1, sticky=tk.W)
+        row += 1
+        self.config_hint_var = tk.StringVar(value="What to expect: Load parameters → Compare → open Reports tab for results.")
+        ttk.Label(parent, textvariable=self.config_hint_var, foreground="gray", font=("", 8), wraplength=520).grid(row=row, column=1, sticky=tk.W)
+
+    def _update_config_hint(self):
+        """Update the 'What to expect' hint based on current state."""
+        if hasattr(self, "config_hint_var"):
+            if self.current_params:
+                self.config_hint_var.set("What to expect: Click Compare → open Reports tab. You can also ask the AI Assistant for help.")
+            else:
+                self.config_hint_var.set("What to expect: Load parameters (file or MAVLink) → Compare → Reports tab. If file has 0 params, use 'Get AI analysis of file'.")
 
     def _on_load_param_file(self):
         path = filedialog.askopenfilename(
@@ -126,8 +143,18 @@ class ArduPilotStandaloneApp:
             return
         self.param_file_path = Path(path)
         self.current_params = load_user_params_from_file(self.param_file_path)
-        self.param_file_label.config(text=f"{self.param_file_path.name} ({len(self.current_params)} params)", foreground="")
-        self.config_status_var.set(f"Loaded {len(self.current_params)} parameters from file.")
+        n = len(self.current_params)
+        self.param_file_label.config(text=f"{self.param_file_path.name} ({n} params)", foreground="orange" if n == 0 else "")
+        if n == 0:
+            self.config_status_var.set(
+                "File loaded but no parameters were found. The file may use a different format. "
+                "Use 'Get AI analysis of file' for suggestions, or try another file / MAVLink."
+            )
+            self.btn_ai_analysis.config(state=tk.NORMAL)
+        else:
+            self.config_status_var.set(f"Loaded {n} parameters from file. Next: click Compare to generate reports.")
+            self.btn_ai_analysis.config(state=tk.DISABLED)
+        self._update_config_hint()
 
     def _on_fetch_mavlink(self):
         conn = self.mavlink_var.get().strip()
@@ -146,17 +173,68 @@ class ArduPilotStandaloneApp:
 
         threading.Thread(target=do_fetch, daemon=True).start()
 
+    def _on_ai_analysis_file(self):
+        """Run AI analysis on the loaded file when it has 0 params; show suggestions in a window."""
+        if not self.param_file_path or not self.param_file_path.exists():
+            self.config_status_var.set("Load a parameter file first (one that shows 0 params).")
+            return
+        self.config_status_var.set("Asking AI for analysis of your file…")
+        self.win.update_idletasks()
+        path = self.param_file_path
+        agent = self.agent_var.get() if self.agent_var.get() in ("openai", "ollama") else None
+
+        def do_analysis():
+            try:
+                raw = path.read_text(encoding="utf-8", errors="replace")
+                snippet = raw[:2500].strip() or "(file empty or unreadable)"
+            except Exception as e:
+                self.win.after(0, lambda: self.config_status_var.set(f"Could not read file: {e}"))
+                return
+            question = (
+                "The user loaded this file as an ArduPilot Plane parameter file, but the parser found 0 parameters. "
+                "Here is the start of the file:\n\n---\n" + snippet + "\n---\n\n"
+                "What might be wrong? What format does ArduPilot expect for .param files (e.g. PARAM_NAME, value)? "
+                "Give 2–4 short, actionable suggestions so the user can fix the file or get a valid parameter dump."
+            )
+            result = get_ai_response(question, param_db=[], prefer_provider=agent)
+            response = result.get("response") or result.get("error") or "No response."
+            source = result.get("source", "")
+            self.win.after(0, lambda: self._show_ai_analysis_result(response, source, path.name))
+            self.win.after(0, lambda: self.config_status_var.set("AI analysis done. See the suggestions window."))
+
+        threading.Thread(target=do_analysis, daemon=True).start()
+
+    def _show_ai_analysis_result(self, text: str, source: str, filename: str):
+        """Show AI analysis result in a separate window."""
+        win = tk.Toplevel(self.win)
+        win.title(f"AI analysis: {filename}")
+        win.minsize(400, 300)
+        win.geometry("560x400")
+        ttk.Label(win, text=f"Suggestions for your parameter file ({source})", font=("", 10, "bold")).pack(anchor=tk.W, padx=10, pady=(10, 4))
+        txt = scrolledtext.ScrolledText(win, wrap=tk.WORD, width=70, height=20, font=("Segoe UI", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        txt.insert(tk.END, text)
+        txt.config(state=tk.DISABLED)
+        ttk.Button(win, text="Close", command=win.destroy).pack(pady=(0, 10))
+
     def _apply_fetched_params(self, params: Dict[str, float], conn: str, error: Optional[str] = None):
         if error:
             self.config_status_var.set(f"Fetch failed: {error}")
+            self._update_config_hint()
             return
         self.current_params = params
         self.param_file_label.config(text=f"MAVLink ({len(params)} params)", foreground="")
-        self.config_status_var.set(f"Fetched {len(params)} parameters via MAVLink.")
+        self.config_status_var.set(f"Fetched {len(params)} parameters. Next: click Compare to generate reports.")
+        self.btn_ai_analysis.config(state=tk.DISABLED)
+        self._update_config_hint()
 
     def _on_compare(self):
         if not self.current_params:
-            self.config_status_var.set("Load or fetch parameters first (file or MAVLink).")
+            self.config_status_var.set(
+                "No parameters to compare. Load a valid .param file (PARAM_NAME and value per line) or fetch via MAVLink. "
+                "If your file was loaded but shows 0 params, use 'Get AI analysis of file' for suggestions."
+            )
+            self._update_config_hint()
             return
         plane_id = self.plane_type_var.get().split(":")[0] if ":" in self.plane_type_var.get() else self.plane_type_var.get()
         try:

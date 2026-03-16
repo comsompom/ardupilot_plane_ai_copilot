@@ -56,6 +56,37 @@ def upload_params():
     return jsonify({"params": params, "count": len(params)})
 
 
+@app.route("/api/params/analyze-file", methods=["POST"])
+def analyze_param_file():
+    """When a param file parses to 0 params, analyze file content with AI and return suggestions."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file"}), 400
+    f = request.files["file"]
+    if f.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+    agent = (request.form.get("agent") or "").strip().lower()
+    prefer_provider = agent if agent in ("openai", "ollama") else None
+    try:
+        raw = f.read().decode("utf-8", errors="replace")
+        if raw.startswith("\ufeff"):
+            raw = raw[1:]
+        snippet = raw[:2500].strip() or "(file empty or unreadable)"
+    except Exception as e:
+        return jsonify({"error": f"Could not read file: {e}"}), 400
+    question = (
+        "The user loaded this file as an ArduPilot Plane parameter file, but the parser found 0 parameters. "
+        "Here is the start of the file:\n\n---\n" + snippet + "\n---\n\n"
+        "What might be wrong? What format does ArduPilot expect for .param files? "
+        "Give 2–4 short, actionable suggestions so the user can fix the file or get a valid parameter dump."
+    )
+    result = get_ai_response(question, param_db=[], prefer_provider=prefer_provider)
+    return jsonify({
+        "response": result.get("response", ""),
+        "source": result.get("source", ""),
+        "error": result.get("error"),
+    })
+
+
 @app.route("/api/params/fetch", methods=["POST"])
 def fetch_params():
     """Fetch params via MAVLink from connection string."""

@@ -39,9 +39,16 @@
     </div>
     <div class="form-row">
       <button type="button" id="compareBtn" class="btn primary">Compare &amp; Generate Reports</button>
+      <input type="file" id="analyzeFileInput" accept=".param,.txt,.parm" style="display:none">
+      <button type="button" id="btnAiAnalysisFile" class="btn" style="display:none">Get AI analysis of file</button>
     </div>
     <div id="compareProgress" class="progress-steps" aria-live="polite">
-      <p id="progressLine1" class="progress-line">Load a parameter file or fetch via MAVLink, then click Compare.</p>
+      <p id="progressLine1" class="progress-line">Upload a parameter file (or use MAVLink), then click Compare to get AI comparison and recommendations.</p>
+      <p id="progressHint" class="progress-line hint">What to expect: Upload params → Compare → open Reports tab for results.</p>
+      <div id="aiAnalysisResult" class="ai-analysis-result" style="display:none">
+        <strong>AI suggestions for your file:</strong>
+        <p id="aiAnalysisText"></p>
+      </div>
     </div>
   </section>
 
@@ -141,6 +148,11 @@ function setProgress(msg) {
   if (el) el.textContent = msg;
 }
 
+function setHint(msg) {
+  const el = document.getElementById('progressHint');
+  if (el) el.textContent = msg;
+}
+
 document.getElementById('paramFile').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   if (!f) return;
@@ -152,12 +164,23 @@ document.getElementById('paramFile').addEventListener('change', async (e) => {
     const j = await r.json();
     if (j.params) {
       currentParams = j.params;
-      setProgress(`Loaded ${j.count} parameters from file. Click "Compare & Generate Reports" to continue.`);
+      const count = j.count || 0;
+      if (count === 0) {
+        setProgress('File loaded but no parameters were found. The file may use a different format. Use "Get AI analysis of file" for suggestions, or try another file.');
+        setHint('If your file has 0 params, click "Get AI analysis of file" and select the same file for AI suggestions.');
+        document.getElementById('btnAiAnalysisFile').style.display = 'inline-block';
+      } else {
+        setProgress(`Loaded ${count} parameters. Click "Compare & Generate Reports" to get AI comparison and recommendations.`);
+        setHint('What to expect: Click Compare → open Reports tab for results.');
+        document.getElementById('btnAiAnalysisFile').style.display = 'none';
+      }
     } else {
       setProgress('Upload failed: ' + (j.error || r.status));
+      document.getElementById('btnAiAnalysisFile').style.display = 'none';
     }
   } catch (err) {
     setProgress('Error: ' + err.message);
+    document.getElementById('btnAiAnalysisFile').style.display = 'none';
   }
 });
 
@@ -178,6 +201,8 @@ document.getElementById('fetchParams').addEventListener('click', async () => {
     if (j.params) {
       currentParams = j.params;
       setProgress(`Fetched ${j.count} parameters. Click "Compare & Generate Reports" to continue.`);
+      setHint('What to expect: Click Compare → open Reports tab for results.');
+      document.getElementById('btnAiAnalysisFile').style.display = 'none';
     } else {
       setProgress('Fetch failed: ' + (j.error || r.status));
     }
@@ -186,9 +211,38 @@ document.getElementById('fetchParams').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('analyzeFileInput').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
+  const agentEl = document.querySelector('input[name="agent"]:checked');
+  if (agentEl && agentEl.value) fd.append('agent', agentEl.value);
+  setProgress('Asking AI for analysis of your file…');
+  const resultDiv = document.getElementById('aiAnalysisResult');
+  const resultText = document.getElementById('aiAnalysisText');
+  if (resultDiv) resultDiv.style.display = 'none';
+  try {
+    const r = await fetch('/api/params/analyze-file', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (j.response) {
+      setProgress('AI analysis done. See suggestions below.');
+      if (resultText) resultText.textContent = j.response;
+      if (resultDiv) resultDiv.style.display = 'block';
+    } else {
+      setProgress('Analysis failed: ' + (j.error || 'No response'));
+    }
+  } catch (err) {
+    setProgress('Error: ' + err.message);
+  }
+  e.target.value = '';
+});
+document.getElementById('btnAiAnalysisFile').addEventListener('click', () => document.getElementById('analyzeFileInput').click());
+
 document.getElementById('compareBtn').addEventListener('click', async () => {
   if (Object.keys(currentParams).length === 0) {
-    setProgress('Load or fetch parameters first (upload a file or use MAVLink).');
+    setProgress('No parameters to compare. Upload a valid .param file (PARAM_NAME and value per line) or use MAVLink. If your file had 0 params, use "Get AI analysis of file" for suggestions.');
+    setHint('Supported formats: NAME VALUE, NAME=VALUE, NAME,VALUE (e.g. SYSID_THISMAV 1).');
     return;
   }
   const planeTypeId = document.getElementById('planeType').value;

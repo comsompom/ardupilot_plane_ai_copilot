@@ -43,29 +43,83 @@ def get_param_def(param_db: List[Dict], param_name: str) -> Optional[Dict[str, A
     return None
 
 
+# Param name: letters, numbers, underscore (ArduPilot style)
+_PARAM_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+
+def _parse_param_line(line: str) -> Optional[tuple]:
+    """Parse one line into (name, value) or None. Tries comma, equals, then whitespace."""
+    line = line.strip().strip("\r")
+    if not line or line.startswith("#"):
+        return None
+    # 1) NAME=VALUE
+    if "=" in line:
+        idx = line.index("=")
+        name = line[:idx].strip()
+        val_str = line[idx + 1 :].strip()
+        if _PARAM_NAME_RE.match(name):
+            try:
+                return (name, float(val_str))
+            except ValueError:
+                pass
+    # 2) NAME,VALUE or NAME;VALUE (CSV-style; also "Index,Name,Value" skip header)
+    sep = "," if "," in line else (";" if ";" in line else None)
+    if sep:
+        parts = [p.strip().strip('"') for p in line.split(sep)]
+        if len(parts) >= 2:
+            # Skip header row (e.g. Index,Name,Value)
+            if parts[0].lower() in ("index", "id", "#", "num") and len(parts) >= 3:
+                if "name" in parts[1].lower() or "param" in parts[1].lower():
+                    return None
+            name = parts[0]
+            val_str = parts[1] if len(parts) > 1 else ""
+            if _PARAM_NAME_RE.match(name):
+                try:
+                    return (name, float(val_str))
+                except ValueError:
+                    pass
+            # Try second column as name, third as value (Index,Name,Value)
+            if len(parts) >= 3 and _PARAM_NAME_RE.match(parts[1]):
+                try:
+                    return (parts[1], float(parts[2]))
+                except ValueError:
+                    pass
+    # 3) PARAM_NAME\tVALUE or PARAM_NAME VALUE (tab or whitespace)
+    parts = re.split(r"\s+", line, 1)
+    if len(parts) >= 2:
+        name = parts[0].strip()
+        val_str = parts[1].strip()
+        if _PARAM_NAME_RE.match(name):
+            try:
+                return (name, float(val_str))
+            except ValueError:
+                pass
+    return None
+
+
 def load_user_params_from_file(file_path: str | Path) -> Dict[str, float]:
     """
-    Load user parameters from a .param file or plain text (NAME VALUE lines).
+    Load user parameters from a .param file or plain text.
+    Supports: NAME VALUE, NAME\tVALUE, NAME,VALUE, NAME=VALUE, and CSV (Name,Value or Index,Name,Value).
     Returns dict: param_name -> value (float).
     """
     file_path = Path(file_path)
     if not file_path.exists():
         return {}
     user_params = {}
-    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            # Format: PARAM_NAME\tVALUE or PARAM_NAME VALUE
-            parts = re.split(r"\s+", line, 1)
-            if len(parts) >= 2:
-                name = parts[0].strip()
-                try:
-                    val = float(parts[1].strip())
-                    user_params[name] = val
-                except ValueError:
-                    pass
+    try:
+        raw = file_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return {}
+    # Strip BOM if present
+    if raw.startswith("\ufeff"):
+        raw = raw[1:]
+    for line in raw.splitlines():
+        parsed = _parse_param_line(line)
+        if parsed is None:
+            continue
+        name, val = parsed
+        user_params[name] = val
     return user_params
 
 

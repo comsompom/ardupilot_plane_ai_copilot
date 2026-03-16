@@ -1,5 +1,9 @@
 # ArduPilot AI Assistant
 
+<p align="center">
+  <img src="ai_copilot_logo.jpg" alt="ArduPilot AI Assistant logo" width="200">
+</p>
+
 **HACKHAZARDS '26** — AI-powered assistant for ArduPilot Plane pilots: parameter comparison, flight-mode reports, mission & flight log analysis, and offline AI chat.
 
 ## Features

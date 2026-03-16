@@ -166,6 +166,46 @@ body {
   color: var(--muted);
 }
 
+.progress-steps {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.progress-line {
+  margin: 0;
+}
+
+.agent-row label:first-child { display: block; margin-bottom: 0.25rem; color: var(--muted); font-size: 0.85rem; }
+.agent-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.25rem;
+}
+.agent-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.agent-option input { margin: 0; }
+
+.ai-summary-block {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.ai-summary-title { margin: 0 0 0.5rem; font-size: 1rem; color: var(--accent); }
+.ai-summary-text { margin: 0 0 0.25rem; white-space: pre-wrap; font-size: 0.9rem; }
+.ai-summary-source { margin: 0; font-size: 0.8rem; color: var(--muted); }
+
 .tabs {
   display: flex;
   gap: 0.25rem;

@@ -77,6 +77,27 @@ def _call_openai(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
         return {"response": "", "source": "openai", "error": str(e)}
 
 
+def _call_ollama(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    """Call Ollama API. Returns dict with response, source='ollama', and optional error."""
+    try:
+        import ollama
+        from config import OLLAMA_MODEL, OLLAMA_BASE_URL
+        client = ollama.Client(host=OLLAMA_BASE_URL)
+        response = client.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        text = response.get("message", {}).get("content", "")
+        if text:
+            return {"response": text.strip(), "source": "ollama", "error": None}
+        return {"response": "", "source": "ollama", "error": "Empty response from Ollama"}
+    except Exception as e:
+        return {"response": "", "source": "ollama", "error": str(e)}
+
+
 def get_ai_response(
     user_question: str,
     plane_type_id: Optional[str] = None,
@@ -85,10 +106,12 @@ def get_ai_response(
     report_summary: Optional[Dict[str, Any]] = None,
     param_db: Optional[List[Dict]] = None,
     use_rag: bool = True,
+    prefer_provider: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Get AI assistant response.
-    Priority: 1) OpenAI (if key set and online), 2) Ollama (local), 3) keyword fallback.
+    prefer_provider: "openai" | "ollama" | None. If set, use only that provider (or fallback on failure).
+    Otherwise: OpenAI (if key set and online), then Ollama (local), then keyword fallback.
     Returns dict: { "response": str, "source": "openai" | "ollama" | "fallback", "error": str | None }.
     """
     user_params = user_params or {}
@@ -105,33 +128,30 @@ def get_ai_response(
         system_prompt += f" The user's plane type is: {plane_type_name}."
     user_prompt = f"{user_question}\n\nContext:\n{context[:2000]}"
 
-    # 1) Prefer OpenAI when API key is set (assumes internet available)
+    # User chose a specific provider
+    if prefer_provider == "openai" and _check_openai_key():
+        result = _call_openai(system_prompt, user_prompt)
+        if result.get("response"):
+            return result
+        return {"response": result.get("error") or "OpenAI failed.", "source": "fallback", "error": result.get("error")}
+    if prefer_provider == "ollama" and _check_ollama():
+        result = _call_ollama(system_prompt, user_prompt)
+        if result.get("response"):
+            return result
+        return {"response": result.get("error") or "Ollama failed.", "source": "fallback", "error": result.get("error")}
+
+    # Auto: try OpenAI then Ollama then fallback
     if _check_openai_key():
         result = _call_openai(system_prompt, user_prompt)
         if result.get("response") and not result.get("error"):
             return result
-        # If OpenAI failed (e.g. no internet), fall through to Ollama or fallback
 
-    # 2) Ollama (local)
     if _check_ollama():
-        try:
-            import ollama
-            from config import OLLAMA_MODEL, OLLAMA_BASE_URL
-            client = ollama.Client(host=OLLAMA_BASE_URL)
-            response = client.chat(
-                model=OLLAMA_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            text = response.get("message", {}).get("content", "")
-            if text:
-                return {"response": text.strip(), "source": "ollama", "error": None}
-        except Exception as e:
-            pass  # fall through to fallback
+        result = _call_ollama(system_prompt, user_prompt)
+        if result.get("response"):
+            return result
 
-    # 3) Fallback: simple keyword-based answers when no LLM or both failed
+    # Fallback: simple keyword-based answers when no LLM or both failed
     q = user_question.lower()
     if "fbwa" in q or "fly by wire" in q:
         fallback = (
@@ -158,3 +178,39 @@ def get_ai_response(
             "Set OPENAI_API_KEY (and be online) or run Ollama locally for full AI answers."
         )
     return {"response": fallback, "source": "fallback", "error": None}
+
+
+def get_report_summary_ai(
+    reports: Dict[str, Any],
+    plane_type_name: Optional[str] = None,
+    prefer_provider: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Ask the AI for a short summary of the parameter reports (for Compare & Generate Reports).
+    reports: dict of mode -> { summary: { total, ok, warning, change }, rows: [...] }
+    Returns same shape as get_ai_response: { "response": str, "source": str, "error": str | None }.
+    """
+    lines = []
+    for mode, data in reports.items():
+        s = (data or {}).get("summary", {})
+        total = s.get("total", 0)
+        ok = s.get("ok", 0)
+        warning = s.get("warning", 0)
+        change = s.get("change", 0)
+        lines.append(f"{mode}: {total} params — OK: {ok}, Warning: {warning}, Change: {change}")
+        rows = (data or {}).get("rows", [])[:15]
+        for r in rows:
+            if r.get("severity") and r.get("severity") != "OK":
+                lines.append(f"  - {r.get('parameter', '')}: current {r.get('current_value')} → {r.get('recommended')} ({r.get('severity')})")
+    context = "\n".join(lines)
+    user_question = (
+        "Summarize this parameter comparison report in 2-4 short sentences. "
+        "Highlight the most important changes or warnings the pilot should address first. Be concise.\n\n"
+        f"Report:\n{context[:2500]}"
+    )
+    return get_ai_response(
+        user_question,
+        plane_type_name=plane_type_name,
+        param_db=[],
+        prefer_provider=prefer_provider,
+    )

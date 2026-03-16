@@ -22,7 +22,7 @@ from core.reports import (
     export_report_pdf,
     export_report_txt,
 )
-from core.ai_assistant import get_ai_response
+from core.ai_assistant import get_ai_response, get_report_summary_ai
 from core.mission_parser import parse_mission_file, analyze_mission
 from core.log_parser import parse_flight_log, analyze_flight_log
 
@@ -69,7 +69,7 @@ def fetch_params():
 
 @app.route("/api/compare", methods=["POST"])
 def compare():
-    """Run comparison for all modes; return reports."""
+    """Run comparison for all modes; optionally get AI summary. Returns reports and optionally ai_summary."""
     data = request.get_json() or {}
     params = data.get("params", {})
     if not params:
@@ -77,6 +77,8 @@ def compare():
     plane_type_id = data.get("plane_type_id")
     wingspan_m = data.get("wingspan_m")
     weight_kg = data.get("weight_kg")
+    use_ai = data.get("use_ai", False)
+    agent = (data.get("agent") or "").strip().lower()  # "openai" | "ollama"
     if wingspan_m is not None:
         try:
             wingspan_m = float(wingspan_m)
@@ -97,7 +99,14 @@ def compare():
             wingspan_m=wingspan_m,
             weight_kg=weight_kg,
         )
-    return jsonify({"reports": reports})
+    out = {"reports": reports}
+    if use_ai and agent in ("openai", "ollama"):
+        plane_type_name = get_plane_type_name(plane_type_id) if plane_type_id else None
+        ai_result = get_report_summary_ai(reports, plane_type_name=plane_type_name, prefer_provider=agent)
+        out["ai_summary"] = ai_result.get("response", "")
+        out["ai_source"] = ai_result.get("source", "")
+        out["ai_error"] = ai_result.get("error")
+    return jsonify(out)
 
 
 @app.route("/api/export/<mode>", methods=["POST"])
@@ -171,7 +180,7 @@ def log_analyze():
 
 @app.route("/api/assistant", methods=["POST"])
 def assistant():
-    """AI assistant: send question, get response."""
+    """AI assistant: send question, get response. Optional agent: openai | ollama."""
     data = request.get_json() or {}
     question = (data.get("question") or "").strip()
     if not question:
@@ -180,6 +189,8 @@ def assistant():
     plane_type_name = get_plane_type_name(plane_type_id) if plane_type_id else None
     user_params = data.get("params", {})
     report_summary = data.get("report_summary", {})
+    agent = (data.get("agent") or "").strip().lower()
+    prefer_provider = agent if agent in ("openai", "ollama") else None
     param_db = load_param_db()
     result = get_ai_response(
         question,
@@ -188,6 +199,7 @@ def assistant():
         user_params=user_params,
         report_summary=report_summary,
         param_db=param_db,
+        prefer_provider=prefer_provider,
     )
     return jsonify(result)
 

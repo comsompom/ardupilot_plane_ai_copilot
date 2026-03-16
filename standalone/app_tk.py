@@ -13,10 +13,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 # Import core (shared with Flask web app)
-from core.plane_types import PLANE_TYPES
+from core.plane_types import PLANE_TYPES, get_plane_type_name
 from core.params import load_param_db, load_user_params_from_file, fetch_user_params_mavlink
 from core.reports import generate_report, export_report_html, export_report_pdf, export_report_txt
-from core.ai_assistant import get_ai_response
+from core.ai_assistant import get_ai_response, get_report_summary_ai
 from core.mission_parser import parse_mission_file, analyze_mission
 from core.log_parser import parse_flight_log, analyze_flight_log
 
@@ -33,6 +33,7 @@ class ArduPilotStandaloneApp:
         self.current_params: Dict[str, float] = {}
         self.current_reports: Dict[str, Dict[str, Any]] = {}
         self.param_file_path: Optional[Path] = None
+        self.ai_summary_text: Optional[str] = None
 
         self._build_ui()
 
@@ -101,11 +102,20 @@ class ArduPilotStandaloneApp:
         ttk.Button(mav_f, text="Fetch via MAVLink", command=self._on_fetch_mavlink).pack(side=tk.LEFT)
         row += 1
 
+        ttk.Label(parent, text="AI agent for reports").grid(row=row, column=0, sticky=tk.W, pady=2)
+        agent_f = ttk.Frame(parent)
+        agent_f.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.agent_var = tk.StringVar(value="none")
+        ttk.Radiobutton(agent_f, text="Online (OpenAI)", variable=self.agent_var, value="openai").pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Radiobutton(agent_f, text="Local (Ollama)", variable=self.agent_var, value="ollama").pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Radiobutton(agent_f, text="No AI summary", variable=self.agent_var, value="none").pack(side=tk.LEFT)
+        row += 1
+
         ttk.Button(parent, text="Compare & Generate Reports", command=self._on_compare).grid(row=row, column=1, sticky=tk.W, pady=8)
         row += 1
 
         self.config_status_var = tk.StringVar(value="Load parameters (file or MAVLink), then click Compare.")
-        ttk.Label(parent, textvariable=self.config_status_var, foreground="gray").grid(row=row, column=1, sticky=tk.W)
+        ttk.Label(parent, textvariable=self.config_status_var, foreground="gray", wraplength=500).grid(row=row, column=1, sticky=tk.W)
 
     def _on_load_param_file(self):
         path = filedialog.askopenfilename(
@@ -146,7 +156,7 @@ class ArduPilotStandaloneApp:
 
     def _on_compare(self):
         if not self.current_params:
-            self.config_status_var.set("Load or fetch parameters first.")
+            self.config_status_var.set("Load or fetch parameters first (file or MAVLink).")
             return
         plane_id = self.plane_type_var.get().split(":")[0] if ":" in self.plane_type_var.get() else self.plane_type_var.get()
         try:
@@ -157,19 +167,46 @@ class ArduPilotStandaloneApp:
             weight = float(self.weight_var.get()) if self.weight_var.get().strip() else None
         except ValueError:
             weight = None
-        self.config_status_var.set("Comparing…")
+        agent = self.agent_var.get() if self.agent_var.get() in ("openai", "ollama") else None
+        use_ai = agent is not None
+
+        def do_compare():
+            def status(msg: str):
+                self.win.after(0, lambda: self.config_status_var.set(msg))
+
+            status("Loading parameter database…")
+            param_db = load_param_db()
+            self.current_reports = {}
+            for i, mode in enumerate(MODES):
+                status(f"Comparing {mode}…")
+                self.win.after(0, self.win.update_idletasks)
+                self.current_reports[mode] = generate_report(
+                    self.current_params, param_db=param_db, mode=mode,
+                    plane_type_id=plane_id, wingspan_m=wingspan, weight_kg=weight,
+                )
+            self.win.after(0, self._refresh_report_tables)
+            self.ai_summary_text = None
+            if use_ai and agent:
+                status("Generating AI summary…")
+                self.win.after(0, self.win.update_idletasks)
+                plane_name = get_plane_type_name(plane_id) if plane_id else None
+                result = get_report_summary_ai(
+                    self.current_reports, plane_type_name=plane_name, prefer_provider=agent
+                )
+                self.ai_summary_text = result.get("response") or result.get("error") or ""
+                self.win.after(0, self._refresh_ai_summary_label)
+            status("Done. Reports generated." + (" AI summary added." if self.ai_summary_text else " Open the Reports tab."))
+
+        self.config_status_var.set("Comparing parameters and generating reports…")
         self.win.update_idletasks()
-        param_db = load_param_db()
-        self.current_reports = {}
-        for mode in MODES:
-            self.current_reports[mode] = generate_report(
-                self.current_params, param_db=param_db, mode=mode,
-                plane_type_id=plane_id, wingspan_m=wingspan, weight_kg=weight,
-            )
-        self._refresh_report_tables()
-        self.config_status_var.set("Reports generated. Open the Reports tab.")
+        threading.Thread(target=do_compare, daemon=True).start()
 
     def _build_reports_tab(self, parent: ttk.Frame):
+        self.ai_summary_var = tk.StringVar(value="")
+        ai_frame = ttk.LabelFrame(parent, text="AI summary (when generated)")
+        ai_frame.pack(fill=tk.X, pady=(0, 8))
+        self.ai_summary_label = ttk.Label(ai_frame, textvariable=self.ai_summary_var, wraplength=700)
+        self.ai_summary_label.pack(anchor=tk.W, padx=6, pady=4)
         self.report_notebook = ttk.Notebook(parent)
         self.report_notebook.pack(fill=tk.BOTH, expand=True)
         self.report_treeviews: Dict[str, ttk.Treeview] = {}
@@ -204,7 +241,14 @@ class ArduPilotStandaloneApp:
             ttk.Label(frame, textvariable=sv).pack(anchor=tk.W)
             self.report_summary_vars[mode] = sv
 
+    def _refresh_ai_summary_label(self):
+        if self.ai_summary_text:
+            self.ai_summary_var.set(self.ai_summary_text)
+        else:
+            self.ai_summary_var.set("Run Compare with Online or Local AI selected to see a summary here.")
+
     def _refresh_report_tables(self):
+        self._refresh_ai_summary_label()
         for mode in MODES:
             tree = self.report_treeviews[mode]
             for item in tree.get_children():
@@ -326,6 +370,7 @@ class ArduPilotStandaloneApp:
 
         def do_ask():
             plane_id = self.plane_type_var.get().split(":")[0] if ":" in self.plane_type_var.get() else None
+            agent = self.agent_var.get() if self.agent_var.get() in ("openai", "ollama") else None
             param_db = load_param_db()
             result = get_ai_response(
                 question,
@@ -333,6 +378,7 @@ class ArduPilotStandaloneApp:
                 user_params=self.current_params,
                 report_summary={m: r.get("summary") for m, r in self.current_reports.items()} if self.current_reports else {},
                 param_db=param_db,
+                prefer_provider=agent,
             )
             text = result.get("response") or result.get("error") or "No response."
             source = result.get("source", "")

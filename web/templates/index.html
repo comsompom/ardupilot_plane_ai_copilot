@@ -28,14 +28,30 @@
         <button type="button" id="fetchParams">Fetch via MAVLink</button>
       </div>
     </div>
+    <div class="form-row agent-row">
+      <label>AI agent for reports</label>
+      <div class="agent-options">
+        <label class="agent-option"><input type="radio" name="agent" value="openai" id="agentOpenAI"> Online (OpenAI)</label>
+        <label class="agent-option"><input type="radio" name="agent" value="ollama" id="agentOllama"> Local (Ollama)</label>
+        <label class="agent-option"><input type="radio" name="agent" value="" id="agentNone" checked> No AI summary</label>
+      </div>
+      <p class="hint">When &quot;Online&quot; or &quot;Local&quot; is selected, Compare will also ask the AI for a short report summary.</p>
+    </div>
     <div class="form-row">
       <button type="button" id="compareBtn" class="btn primary">Compare &amp; Generate Reports</button>
     </div>
-    <p id="paramStatus" class="status"></p>
+    <div id="compareProgress" class="progress-steps" aria-live="polite">
+      <p id="progressLine1" class="progress-line">Load a parameter file or fetch via MAVLink, then click Compare.</p>
+    </div>
   </section>
 
   <section id="reports" class="card reports-section scroll-target">
     <h2>Reports</h2>
+    <div id="aiSummaryBlock" class="ai-summary-block" hidden>
+      <h3 class="ai-summary-title">AI summary</h3>
+      <p id="aiSummaryText" class="ai-summary-text"></p>
+      <p id="aiSummarySource" class="ai-summary-source"></p>
+    </div>
     <div class="tabs">
     {% for mode in modes %}
     <button type="button" class="tab" data-mode="{{ mode }}" {% if loop.first %}aria-selected="true"{% endif %}>{{ mode }}</button>
@@ -120,32 +136,38 @@ document.querySelectorAll('.tab').forEach((btn, i) => {
   });
 });
 
+function setProgress(msg) {
+  const el = document.getElementById('progressLine1');
+  if (el) el.textContent = msg;
+}
+
 document.getElementById('paramFile').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   if (!f) return;
   const fd = new FormData();
   fd.append('file', f);
+  setProgress('Uploading file…');
   try {
     const r = await fetch('/api/params/upload', { method: 'POST', body: fd });
     const j = await r.json();
     if (j.params) {
       currentParams = j.params;
-      document.getElementById('paramStatus').textContent = `Loaded ${j.count} parameters from file.`;
+      setProgress(`Loaded ${j.count} parameters from file. Click "Compare & Generate Reports" to continue.`);
     } else {
-      document.getElementById('paramStatus').textContent = 'Upload failed: ' + (j.error || r.status);
+      setProgress('Upload failed: ' + (j.error || r.status));
     }
   } catch (err) {
-    document.getElementById('paramStatus').textContent = 'Error: ' + err.message;
+    setProgress('Error: ' + err.message);
   }
 });
 
 document.getElementById('fetchParams').addEventListener('click', async () => {
   const conn = document.getElementById('mavlinkConn').value.trim();
   if (!conn) {
-    document.getElementById('paramStatus').textContent = 'Enter MAVLink connection (e.g. udp:127.0.0.1:14550)';
+    setProgress('Enter MAVLink connection (e.g. udp:127.0.0.1:14550)');
     return;
   }
-  document.getElementById('paramStatus').textContent = 'Fetching...';
+  setProgress('Fetching parameters via MAVLink…');
   try {
     const r = await fetch('/api/params/fetch', {
       method: 'POST',
@@ -155,24 +177,31 @@ document.getElementById('fetchParams').addEventListener('click', async () => {
     const j = await r.json();
     if (j.params) {
       currentParams = j.params;
-      document.getElementById('paramStatus').textContent = `Fetched ${j.count} parameters via MAVLink.`;
+      setProgress(`Fetched ${j.count} parameters. Click "Compare & Generate Reports" to continue.`);
     } else {
-      document.getElementById('paramStatus').textContent = 'Fetch failed: ' + (j.error || r.status);
+      setProgress('Fetch failed: ' + (j.error || r.status));
     }
   } catch (err) {
-    document.getElementById('paramStatus').textContent = 'Error: ' + err.message;
+    setProgress('Error: ' + err.message);
   }
 });
 
 document.getElementById('compareBtn').addEventListener('click', async () => {
   if (Object.keys(currentParams).length === 0) {
-    document.getElementById('paramStatus').textContent = 'Load or fetch parameters first.';
+    setProgress('Load or fetch parameters first (upload a file or use MAVLink).');
     return;
   }
   const planeTypeId = document.getElementById('planeType').value;
   const wingspan = document.getElementById('wingspan').value;
   const weight = document.getElementById('weight').value;
-  document.getElementById('paramStatus').textContent = 'Comparing...';
+  const agentOpenAI = document.getElementById('agentOpenAI');
+  const agentOllama = document.getElementById('agentOllama');
+  const useAi = agentOpenAI.checked || agentOllama.checked;
+  const agent = agentOpenAI.checked ? 'openai' : (agentOllama.checked ? 'ollama' : '');
+
+  setProgress('Comparing parameters and generating reports…');
+  if (useAi) setProgress('Comparing parameters, generating reports, and asking AI for summary…');
+
   try {
     const r = await fetch('/api/compare', {
       method: 'POST',
@@ -181,7 +210,9 @@ document.getElementById('compareBtn').addEventListener('click', async () => {
         params: currentParams,
         plane_type_id: planeTypeId,
         wingspan_m: wingspan || null,
-        weight_kg: weight || null
+        weight_kg: weight || null,
+        use_ai: useAi,
+        agent: agent || null
       })
     });
     const j = await r.json();
@@ -200,13 +231,24 @@ document.getElementById('compareBtn').addEventListener('click', async () => {
         const s = report.summary || {};
         document.getElementById('summary-' + mode).textContent = `Total: ${s.total || 0} | OK: ${s.ok || 0} | Warning: ${s.warning || 0} | Change: ${s.change || 0}`;
       });
+      const block = document.getElementById('aiSummaryBlock');
+      const textEl = document.getElementById('aiSummaryText');
+      const sourceEl = document.getElementById('aiSummarySource');
+      if (j.ai_summary && textEl) {
+        textEl.textContent = j.ai_summary;
+        if (sourceEl) sourceEl.textContent = 'Source: ' + (j.ai_source || 'AI');
+        if (block) { block.hidden = false; block.removeAttribute('hidden'); }
+      } else if (block) {
+        block.hidden = true;
+        block.setAttribute('hidden', '');
+      }
+      setProgress('Done. Reports generated.' + (j.ai_summary ? ' AI summary added.' : ''));
       document.querySelector('.tab').click();
-      document.getElementById('paramStatus').textContent = 'Reports generated.';
     } else {
-      document.getElementById('paramStatus').textContent = 'Compare failed: ' + (j.error || r.status);
+      setProgress('Compare failed: ' + (j.error || r.status));
     }
   } catch (err) {
-    document.getElementById('paramStatus').textContent = 'Error: ' + err.message;
+    setProgress('Error: ' + err.message);
   }
 });
 
@@ -304,6 +346,8 @@ async function sendQuestion() {
   addChatMessage('user', question);
   input.value = '';
   try {
+    const agentEl = document.querySelector('input[name="agent"]:checked');
+    const agent = (agentEl && agentEl.value) ? agentEl.value : null;
     const r = await fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -314,7 +358,8 @@ async function sendQuestion() {
         report_summary: currentReports ? Object.keys(currentReports).reduce((acc, m) => {
           acc[m] = currentReports[m].summary;
           return acc;
-        }, {}) : {}
+        }, {}) : {},
+        agent: agent || undefined
       })
     });
     const j = await r.json();

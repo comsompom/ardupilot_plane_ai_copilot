@@ -91,6 +91,57 @@ def parse_flight_log(file_path: str | Path) -> Dict[str, Any]:
             "first_ts": first_ts,
             "last_ts": last_ts,
         }
+        result = {
+            "ok": True,
+            "events": events[:200],
+            "mode_changes": mode_changes[:100],
+            "message_counts": dict(sorted(message_counts.items(), key=lambda x: -x[1])),
+            "summary": summary,
+        }
+        if total_messages > 0:
+            return result
+        # 0 messages: try dataflash format
+    except Exception:
+        pass
+    # Fallback: ArduPilot dataflash .bin format (DFReader) when MAVLink parse gave 0 messages or failed
+    try:
+        from pymavlink.DFReader import DFReader_binary
+        df = DFReader_binary(str(path))
+        message_counts = {}
+        first_ts = last_ts = None
+        mode_changes = []
+        events = []
+        while True:
+            msg = df.recv_msg()
+            if msg is None:
+                break
+            mtype = getattr(msg, "get_type", lambda: None)() or getattr(msg, "Name", getattr(msg, "name", type(msg).__name__))
+            mtype = str(mtype)
+            message_counts[mtype] = message_counts.get(mtype, 0) + 1
+            ts = _get_msg_time(msg)
+            if ts is not None:
+                if first_ts is None:
+                    first_ts = ts
+                last_ts = ts
+            if mtype == "MODE":
+                mode = getattr(msg, "Mode", getattr(msg, "mode", None))
+                if mode is not None:
+                    mode_changes.append({"time_s": ts, "mode": mode, "mode_name": str(mode)})
+            elif mtype in ("MSG", "EV", "STATUSTEXT", "Message"):
+                text = getattr(msg, "Message", None) or getattr(msg, "text", getattr(msg, "Msg", str(msg)))[:120]
+                events.append({"type": mtype, "text": str(text), "time_s": ts})
+        total_messages = sum(message_counts.values())
+        duration_s = (last_ts - first_ts) if (first_ts and last_ts) else None
+        summary = {
+            "total_messages": total_messages,
+            "message_types": len(message_counts),
+            "mode_changes": len(mode_changes),
+            "events": len(events),
+            "duration_seconds": round(duration_s, 1) if duration_s is not None else None,
+            "first_ts": first_ts,
+            "last_ts": last_ts,
+            "format": "dataflash",
+        }
         return {
             "ok": True,
             "events": events[:200],
@@ -98,8 +149,8 @@ def parse_flight_log(file_path: str | Path) -> Dict[str, Any]:
             "message_counts": dict(sorted(message_counts.items(), key=lambda x: -x[1])),
             "summary": summary,
         }
-    except Exception as e:
-        return {"ok": False, "error": str(e), "events": [], "mode_changes": [], "message_counts": {}, "summary": {}}
+    except Exception as e2:
+        return {"ok": False, "error": str(e2), "events": [], "mode_changes": [], "message_counts": {}, "summary": {}}
 
 
 def analyze_flight_log(log_data: Dict[str, Any]) -> Dict[str, Any]:

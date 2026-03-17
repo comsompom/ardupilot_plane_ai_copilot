@@ -262,3 +262,53 @@ def get_flight_log_ai_analysis(
         param_db=[],
         prefer_provider=prefer_provider,
     )
+
+
+def get_mission_ai_analysis(
+    mission_data: Dict[str, Any],
+    plane_type_name: Optional[str] = None,
+    prefer_provider: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Ask the AI to interpret the parsed mission for the pilot.
+    mission_data: from parse_mission_file (waypoints, summary, waypoint_summary, errors).
+    Returns { "response": str, "source": str, "error": str | None }.
+    """
+    lines = ["=== Mission file parsing result ==="]
+    summary = mission_data.get("summary", {})
+    waypoint_count = summary.get("waypoint_count", len(mission_data.get("waypoints", [])))
+    lines.append(f"Waypoints: {waypoint_count}")
+    lines.append(f"Unique commands: {summary.get('unique_commands', 0)}")
+    lines.append(f"Has HOME: {summary.get('has_home')} | TAKEOFF: {summary.get('has_takeoff')} | RTL: {summary.get('has_rtl')} | LAND: {summary.get('has_land')}")
+    lines.append(f"Parse errors: {summary.get('parse_errors', len(mission_data.get('errors', [])))}")
+    cmd_breakdown = summary.get("command_breakdown", {})
+    if cmd_breakdown:
+        lines.append("\nCommand breakdown:")
+        for name, count in list(cmd_breakdown.items())[:20]:
+            lines.append(f"  {name}: {count}")
+    wp_summary = mission_data.get("waypoint_summary", [])[:30]
+    if wp_summary:
+        lines.append("\nWaypoint list (first 30):")
+        for w in wp_summary:
+            name = w.get("command_name", f"CMD_{w.get('command')}")
+            lat, lon, alt = w.get("lat"), w.get("lon"), w.get("alt")
+            lines.append(f"  #{w.get('index')} {name} lat={lat} lon={lon} alt={alt}")
+    errors = mission_data.get("errors", [])
+    if errors:
+        lines.append("\nParse warnings:")
+        for e in errors[:10]:
+            lines.append(f"  {e}")
+    if plane_type_name:
+        lines.append(f"\nPlane type: {plane_type_name}")
+    context = "\n".join(lines)
+    user_question = (
+        "Interpret this ArduPilot mission/waypoint file parsing result for the pilot in 3–6 short sentences. "
+        "Explain what the mission contains (waypoints, command types, HOME/TAKEOFF/RTL/LAND), whether it looks valid and safe, "
+        "and any suggestions (e.g. missing HOME, altitude checks, or plane-specific tips). Be clear and concise.\n\n"
+        f"{context[:3000]}"
+    )
+    return get_ai_response(
+        user_question,
+        param_db=[],
+        prefer_provider=prefer_provider,
+    )

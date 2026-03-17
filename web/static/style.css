@@ -329,6 +329,13 @@ body {
 .analysis-result { margin-top: 0.5rem; font-size: 0.9rem; }
 .analysis-result .muted { color: var(--muted); }
 .analysis-result .err { color: var(--danger); }
+.log-result .log-parsing-result { margin-bottom: 1rem; padding: 0.75rem; background: var(--bg); border-radius: 6px; border: 1px solid var(--border); }
+.log-result .log-parsing-result h4 { margin: 0 0 0.5rem; color: var(--accent); font-size: 0.95rem; }
+.log-result .log-breakdown { margin: 0.25rem 0; padding-left: 1.25rem; max-height: 12rem; overflow-y: auto; }
+
+.mission-result .mission-parsing-result { margin-bottom: 1rem; padding: 0.75rem; background: var(--bg); border-radius: 6px; border: 1px solid var(--border); }
+.mission-result .mission-parsing-result h4 { margin: 0 0 0.5rem; color: var(--accent); font-size: 0.95rem; }
+.mission-result .log-breakdown { margin: 0.25rem 0; padding-left: 1.25rem; max-height: 12rem; overflow-y: auto; }
 
 .footer {
   text-align: center;

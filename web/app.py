@@ -22,7 +22,7 @@ from core.reports import (
     export_report_pdf,
     export_report_txt,
 )
-from core.ai_assistant import get_ai_response, get_report_summary_ai
+from core.ai_assistant import get_ai_response, get_report_summary_ai, get_flight_log_ai_analysis, get_mission_ai_analysis
 from core.mission_parser import parse_mission_file, analyze_mission
 from core.log_parser import parse_flight_log, analyze_flight_log
 
@@ -180,7 +180,7 @@ def export(mode):
 
 @app.route("/api/mission/analyze", methods=["POST"])
 def mission_analyze():
-    """Upload mission file and get analysis/suggestions."""
+    """Upload mission file; return parsing, analysis/suggestions, and optional AI interpretation."""
     if "file" not in request.files:
         return jsonify({"error": "No file"}), 400
     f = request.files["file"]
@@ -190,23 +190,40 @@ def mission_analyze():
     f.save(str(path))
     data = parse_mission_file(path)
     plane_type_id = request.form.get("plane_type_id")
+    plane_type_name = get_plane_type_name(plane_type_id) if plane_type_id else None
     analysis = analyze_mission(data, plane_type_id=plane_type_id)
-    return jsonify({"mission": data, "analysis": analysis})
+    out = {"mission": data, "analysis": analysis}
+    use_ai = request.form.get("use_ai", "").lower() in ("1", "true", "yes")
+    agent = (request.form.get("agent") or "").strip().lower()
+    agent = agent if agent in ("openai", "ollama") else None
+    if use_ai and agent:
+        ai_result = get_mission_ai_analysis(data, plane_type_name=plane_type_name, prefer_provider=agent)
+        out["ai_interpretation"] = ai_result.get("response") or ai_result.get("error")
+        out["ai_source"] = ai_result.get("source")
+    return jsonify(out)
 
 
 @app.route("/api/log/analyze", methods=["POST"])
 def log_analyze():
-    """Upload flight log and get analysis/suggestions."""
+    """Upload flight log; return parsing result, suggestions, and optional AI interpretation."""
     if "file" not in request.files:
         return jsonify({"error": "No file"}), 400
     f = request.files["file"]
     if f.filename == "":
         return jsonify({"error": "No file selected"}), 400
+    use_ai = request.form.get("use_ai", "").lower() in ("1", "true", "yes")
+    agent = (request.form.get("agent") or "").strip().lower()
+    agent = agent if agent in ("openai", "ollama") else None
     path = Path(app.config["UPLOAD_FOLDER"]) / secure_filename(f.filename)
     f.save(str(path))
     data = parse_flight_log(path)
     analysis = analyze_flight_log(data)
-    return jsonify({"log": data, "analysis": analysis})
+    out = {"log": data, "analysis": analysis}
+    if use_ai and agent:
+        ai_result = get_flight_log_ai_analysis(data, prefer_provider=agent)
+        out["ai_interpretation"] = ai_result.get("response", "")
+        out["ai_source"] = ai_result.get("source", "")
+    return jsonify(out)
 
 
 @app.route("/api/assistant", methods=["POST"])

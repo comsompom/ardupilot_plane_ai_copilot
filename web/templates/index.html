@@ -94,12 +94,14 @@
 
   <section id="mission" class="card mission-section scroll-target">
     <h2>Mission analysis</h2>
-    <p class="hint">Upload a mission file (e.g. from Mission Planner) to get suggestions for your plane type.</p>
+    <p class="hint">Upload a mission file (e.g. from Mission Planner) to see what was parsed and get suggestions. Use AI to interpret the mission (same agent as in Configuration).</p>
     <div class="form-row">
       <input type="file" id="missionFile" accept=".waypoints,.plan,.txt">
+      <label class="agent-option" style="margin-left:1rem"><input type="checkbox" id="missionUseAi" checked> Analyze with AI</label>
       <button type="button" id="analyzeMission" class="btn primary">Analyze mission</button>
     </div>
-    <div id="missionResult" class="analysis-result"></div>
+    <p class="hint">When &quot;Analyze with AI&quot; is checked, the selected agent (Online/Local) will interpret the mission and suggest checks.</p>
+    <div id="missionResult" class="analysis-result mission-result"></div>
   </section>
 
   <section id="log" class="card log-section scroll-target">
@@ -107,9 +109,11 @@
     <p class="hint">Upload a flight log (.bin or .log) to get suggestions for future flights.</p>
     <div class="form-row">
       <input type="file" id="logFile" accept=".bin,.log">
+      <label class="agent-option" style="margin-left:1rem"><input type="checkbox" id="logUseAi"> Analyze with AI</label>
       <button type="button" id="analyzeLog" class="btn primary">Analyze log</button>
     </div>
-    <div id="logResult" class="analysis-result"></div>
+    <p class="hint">When &quot;Analyze with AI&quot; is checked, the selected agent (Online/Local) will interpret the parsed log.</p>
+    <div id="logResult" class="analysis-result log-result"></div>
   </section>
 
   <section id="assistant" class="card assistant-section scroll-target">
@@ -349,15 +353,48 @@ document.getElementById('analyzeMission').addEventListener('click', async () => 
   const fd = new FormData();
   fd.append('file', f);
   fd.append('plane_type_id', document.getElementById('planeType').value);
+  const useAi = document.getElementById('missionUseAi').checked;
+  if (useAi) {
+    const agentEl = document.querySelector('input[name="agent"]:checked');
+    if (agentEl && agentEl.value) { fd.append('use_ai', '1'); fd.append('agent', agentEl.value); }
+  }
+  document.getElementById('missionResult').innerHTML = '<p class="muted">Parsing mission…</p>';
   const r = await fetch('/api/mission/analyze', { method: 'POST', body: fd });
   const j = await r.json();
   const el = document.getElementById('missionResult');
-  if (j.analysis) {
-    el.innerHTML = '<p><strong>' + escapeHtml(j.analysis.summary) + '</strong></p><ul>' +
-      (j.analysis.suggestions || []).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>';
-  } else {
-    el.innerHTML = '<p class="err">' + escapeHtml(j.error || 'Analysis failed') + '</p>';
+  if (j.error) { el.innerHTML = '<p class="err">' + escapeHtml(j.error) + '</p>'; return; }
+  let html = '';
+  const mission = j.mission || {};
+  const analysis = j.analysis || {};
+  const summary = mission.summary || {};
+  html += '<div class="mission-parsing-result"><h4>Mission parsing</h4>';
+  html += '<p><strong>Waypoints:</strong> ' + (summary.waypoint_count ?? mission.waypoints?.length ?? 0) + ' &nbsp;|&nbsp; <strong>Unique commands:</strong> ' + (summary.unique_commands ?? 0) + '</p>';
+  html += '<p>HOME: ' + (summary.has_home ? '✓' : '—') + ' &nbsp; TAKEOFF: ' + (summary.has_takeoff ? '✓' : '—') + ' &nbsp; RTL: ' + (summary.has_rtl ? '✓' : '—') + ' &nbsp; LAND: ' + (summary.has_land ? '✓' : '—') + '</p>';
+  const cmdBreakdown = summary.command_breakdown || {};
+  if (Object.keys(cmdBreakdown).length) {
+    html += '<p><strong>Command breakdown:</strong></p><ul class="log-breakdown">';
+    for (const [k, v] of Object.entries(cmdBreakdown).slice(0, 15)) html += '<li>' + escapeHtml(k) + ': ' + v + '</li>';
+    html += '</ul>';
   }
+  const wpSummary = mission.waypoint_summary || [];
+  if (wpSummary.length) {
+    html += '<p><strong>Waypoint list (first 25):</strong></p><ul class="log-breakdown">';
+    wpSummary.slice(0, 25).forEach(w => {
+      const name = w.command_name || ('CMD_' + w.command);
+      html += '<li>#' + w.index + ' ' + escapeHtml(name) + ' lat=' + w.lat + ' lon=' + w.lon + ' alt=' + w.alt + '</li>';
+    });
+    html += '</ul>';
+  }
+  html += '</div>';
+  if (analysis.summary) html += '<p><strong>' + escapeHtml(analysis.summary) + '</strong></p>';
+  if (analysis.suggestions && analysis.suggestions.length)
+    html += '<p><strong>Suggestions:</strong></p><ul>' + analysis.suggestions.map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>';
+  if (j.ai_interpretation) {
+    html += '<div class="ai-summary-block"><h4 class="ai-summary-title">AI interpretation</h4><p class="ai-summary-text">' + escapeHtml(j.ai_interpretation) + '</p>';
+    if (j.ai_source) html += '<p class="ai-summary-source">Source: ' + escapeHtml(j.ai_source) + '</p>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
 });
 
 document.getElementById('analyzeLog').addEventListener('click', async () => {
@@ -365,15 +402,43 @@ document.getElementById('analyzeLog').addEventListener('click', async () => {
   if (!f) { document.getElementById('logResult').innerHTML = '<p class="muted">Select a log file first.</p>'; return; }
   const fd = new FormData();
   fd.append('file', f);
+  const useAi = document.getElementById('logUseAi').checked;
+  if (useAi) {
+    const agentEl = document.querySelector('input[name="agent"]:checked');
+    if (agentEl && agentEl.value) { fd.append('use_ai', '1'); fd.append('agent', agentEl.value); }
+  }
+  document.getElementById('logResult').innerHTML = '<p class="muted">Parsing log…</p>';
   const r = await fetch('/api/log/analyze', { method: 'POST', body: fd });
   const j = await r.json();
   const el = document.getElementById('logResult');
-  if (j.analysis) {
-    el.innerHTML = '<p><strong>' + escapeHtml(j.analysis.summary) + '</strong></p><ul>' +
-      (j.analysis.suggestions || []).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>';
-  } else {
-    el.innerHTML = '<p class="err">' + escapeHtml(j.error || 'Analysis failed') + '</p>';
+  if (j.error) { el.innerHTML = '<p class="err">' + escapeHtml(j.error) + '</p>'; return; }
+  let html = '';
+  const log = j.log || {};
+  const analysis = j.analysis || {};
+  if (log.ok && log.summary) {
+    const s = log.summary;
+    html += '<div class="log-parsing-result"><h4>Parsing result</h4><p><strong>Total messages:</strong> ' + (s.total_messages ?? 0) + ' &nbsp;|&nbsp; <strong>Message types:</strong> ' + (s.message_types ?? 0);
+    if (s.duration_seconds != null) html += ' &nbsp;|&nbsp; <strong>Duration:</strong> ' + s.duration_seconds + ' s';
+    html += '</p><p>Mode changes: ' + (s.mode_changes ?? 0) + ' &nbsp;|&nbsp; Events: ' + (s.events ?? 0) + '</p>';
+    const counts = log.message_counts || {};
+    if (Object.keys(counts).length) {
+      html += '<p><strong>Message breakdown:</strong></p><ul class="log-breakdown">';
+      for (const [k, v] of Object.entries(counts).slice(0, 20)) html += '<li>' + escapeHtml(k) + ': ' + v + '</li>';
+      html += '</ul>';
+    }
+    const modes = (log.mode_changes || []).slice(0, 15);
+    if (modes.length) { html += '<p><strong>Mode changes:</strong></p><ul>'; modes.forEach(m => { html += '<li>t=' + (m.time_s ?? m.time_boot_ms ?? '') + ' → ' + escapeHtml(m.mode_name || m.mode) + '</li>'; }); html += '</ul>'; }
+    const events = (log.events || []).slice(0, 15);
+    if (events.length) { html += '<p><strong>Events:</strong></p><ul>'; events.forEach(e => { html += '<li>[' + escapeHtml(e.type) + '] ' + escapeHtml((e.text || '').slice(0, 80)) + '</li>'; }); html += '</ul>'; }
+    html += '</div>';
   }
+  html += '<p><strong>' + escapeHtml(analysis.summary || '') + '</strong></p><ul>' + (analysis.suggestions || []).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>';
+  if (j.ai_interpretation) {
+    html += '<div class="ai-summary-block"><h4>AI interpretation</h4><p class="ai-summary-text">' + escapeHtml(j.ai_interpretation) + '</p>';
+    if (j.ai_source) html += '<p class="ai-summary-source">Source: ' + escapeHtml(j.ai_source) + '</p>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
 });
 
 function escapeHtml(s) {

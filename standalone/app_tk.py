@@ -15,8 +15,8 @@ sys.path.insert(0, str(ROOT))
 # Import core (shared with Flask web app)
 from core.plane_types import PLANE_TYPES, get_plane_type_name
 from core.params import load_param_db, load_user_params_from_file, fetch_user_params_mavlink
-from core.reports import generate_report, export_report_html, export_report_pdf, export_report_txt
-from core.ai_assistant import get_ai_response, get_report_summary_ai, get_flight_log_ai_analysis
+from core.reports import generate_report, export_report_txt
+from core.ai_assistant import get_ai_response, get_report_summary_ai, get_flight_log_ai_analysis, get_mission_ai_analysis
 from core.mission_parser import parse_mission_file, analyze_mission
 from core.log_parser import parse_flight_log, analyze_flight_log
 
@@ -382,12 +382,10 @@ class ArduPilotStandaloneApp:
         for mode in MODES:
             frame = ttk.Frame(self.report_notebook, padding=5)
             self.report_notebook.add(frame, text=f"  {mode}  ")
-            # Export buttons
+            # Export button (TXT only)
             btn_f = ttk.Frame(frame)
             btn_f.pack(fill=tk.X)
-            ttk.Button(btn_f, text="Export HTML", command=lambda m=mode: self._export_report(m, "html")).pack(side=tk.LEFT, padx=(0, 6))
-            ttk.Button(btn_f, text="Export PDF", command=lambda m=mode: self._export_report(m, "pdf")).pack(side=tk.LEFT, padx=(0, 6))
-            ttk.Button(btn_f, text="Export TXT", command=lambda m=mode: self._export_report(m, "txt")).pack(side=tk.LEFT)
+            ttk.Button(btn_f, text="Export TXT", command=lambda m=mode: self._export_report(m)).pack(side=tk.LEFT)
             # Treeview
             tree = ttk.Treeview(frame, columns=("param", "current", "recommended", "severity", "action"), show="headings", height=12)
             tree.heading("param", text="Parameter")
@@ -433,26 +431,21 @@ class ArduPilotStandaloneApp:
                 f"Total: {s.get('total', 0)} | OK: {s.get('ok', 0)} | Warning: {s.get('warning', 0)} | Change: {s.get('change', 0)}"
             )
 
-    def _export_report(self, mode: str, fmt: str):
+    def _export_report(self, mode: str):
         report = self.current_reports.get(mode)
         if not report or not report.get("rows"):
             messagebox.showinfo("Export", "No report for " + mode + ". Run Compare first.")
             return
         path = filedialog.asksaveasfilename(
-            title=f"Save report as {fmt.upper()}",
-            defaultextension=f".{fmt}",
-            filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")],
-            initialfilename=f"ardupilot_report_{mode}.{fmt}",
+            title="Save report as TXT",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            initialfile=f"ardupilot_report_{mode}.txt",
         )
         if not path:
             return
         path = Path(path)
-        if fmt == "html":
-            export_report_html(report, path)
-        elif fmt == "txt":
-            export_report_txt(report, path)
-        elif fmt == "pdf":
-            export_report_pdf(report, path)
+        export_report_txt(report, path)
         messagebox.showinfo("Export", f"Saved to {path}")
 
     def _build_mission_tab(self, parent: ttk.Frame):
@@ -480,13 +473,65 @@ class ArduPilotStandaloneApp:
         if not self.mission_file_path or not self.mission_file_path.exists():
             messagebox.showinfo("Mission", "Select a mission file first.")
             return
-        plane_id = self.plane_type_var.get().split(":")[0] if ":" in self.plane_type_var.get() else self.plane_type_var.get()
-        data = parse_mission_file(self.mission_file_path)
-        analysis = analyze_mission(data, plane_type_id=plane_id)
         self.mission_result.delete("1.0", tk.END)
-        self.mission_result.insert(tk.END, analysis.get("summary", "") + "\n\n")
+        self.mission_result.insert(tk.END, "Parsing mission file…\n")
+        self.win.update_idletasks()
+        plane_type_str = self.plane_type_var.get()
+        plane_id = plane_type_str.split(":")[0] if ":" in plane_type_str else plane_type_str
+        plane_name = get_plane_type_name(plane_id) or plane_type_str
+        agent = self.agent_var.get() if self.agent_var.get() in ("openai", "ollama") else None
+
+        def do_mission_analysis():
+            data = parse_mission_file(self.mission_file_path)
+            self.win.after(0, lambda: self._display_mission_parsed(data))
+            analysis = analyze_mission(data, plane_type_id=plane_id)
+            self.win.after(0, lambda: self._append_mission_suggestions(analysis))
+            self.win.after(0, lambda: self.mission_result.insert(tk.END, "\nAsking AI for interpretation…\n"))
+            self.win.after(0, self.win.update_idletasks)
+            ai_result = get_mission_ai_analysis(data, plane_type_name=plane_name, prefer_provider=agent)
+            self.win.after(0, lambda: self._append_mission_ai(ai_result))
+
+        threading.Thread(target=do_mission_analysis, daemon=True).start()
+
+    def _display_mission_parsed(self, data: Dict[str, Any]):
+        """Write mission parsing result (waypoints, commands, summary) into mission_result."""
+        self.mission_result.delete("1.0", tk.END)
+        errors = data.get("errors", [])
+        if errors:
+            self.mission_result.insert(tk.END, f"Parse warnings: {len(errors)}\n")
+        s = data.get("summary", {})
+        wp_count = s.get("waypoint_count", len(data.get("waypoints", [])))
+        self.mission_result.insert(tk.END, "——— MISSION PARSING ———\n\n")
+        self.mission_result.insert(tk.END, f"Waypoints: {wp_count}\n")
+        self.mission_result.insert(tk.END, f"Unique commands: {s.get('unique_commands', 0)}\n")
+        self.mission_result.insert(tk.END, f"HOME: {s.get('has_home')}  TAKEOFF: {s.get('has_takeoff')}  RTL: {s.get('has_rtl')}  LAND: {s.get('has_land')}\n\n")
+        cmd_breakdown = s.get("command_breakdown", {})
+        if cmd_breakdown:
+            self.mission_result.insert(tk.END, "Command breakdown:\n")
+            for name, count in list(cmd_breakdown.items())[:15]:
+                self.mission_result.insert(tk.END, f"  {name}: {count}\n")
+            self.mission_result.insert(tk.END, "\n")
+        wp_summary = data.get("waypoint_summary", [])[:25]
+        if wp_summary:
+            self.mission_result.insert(tk.END, "Waypoint list (first 25):\n")
+            for w in wp_summary:
+                name = w.get("command_name", f"CMD_{w.get('command')}")
+                lat, lon, alt = w.get("lat"), w.get("lon"), w.get("alt")
+                self.mission_result.insert(tk.END, f"  #{w.get('index')} {name} lat={lat} lon={lon} alt={alt}\n")
+            self.mission_result.insert(tk.END, "\n")
+
+    def _append_mission_suggestions(self, analysis: Dict[str, Any]):
+        self.mission_result.insert(tk.END, "——— SUGGESTIONS ———\n")
         for s in analysis.get("suggestions", []):
             self.mission_result.insert(tk.END, "• " + s + "\n")
+        self.mission_result.insert(tk.END, "\n")
+
+    def _append_mission_ai(self, ai_result: Dict[str, Any]):
+        self.mission_result.insert(tk.END, "——— AI INTERPRETATION ———\n\n")
+        text = ai_result.get("response") or ai_result.get("error") or "No AI response."
+        self.mission_result.insert(tk.END, text + "\n")
+        if ai_result.get("source"):
+            self.mission_result.insert(tk.END, f"\n(Source: {ai_result.get('source')})\n")
 
     def _build_log_tab(self, parent: ttk.Frame):
         ttk.Label(parent, text="FLIGHT LOG ANALYSIS", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 8))

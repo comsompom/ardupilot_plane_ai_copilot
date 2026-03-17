@@ -214,3 +214,51 @@ def get_report_summary_ai(
         param_db=[],
         prefer_provider=prefer_provider,
     )
+
+
+def get_flight_log_ai_analysis(
+    log_data: Dict[str, Any],
+    prefer_provider: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Ask the AI to interpret the parsed flight log for the pilot.
+    log_data: from parse_flight_log (summary, message_counts, mode_changes, events).
+    Returns { "response": str, "source": str, "error": str | None }.
+    """
+    if not log_data.get("ok"):
+        return {"response": f"Log could not be parsed: {log_data.get('error', 'Unknown')}.", "source": "fallback", "error": log_data.get("error")}
+    lines = ["=== Flight log parsing result ==="]
+    s = log_data.get("summary", {})
+    lines.append(f"Total messages: {s.get('total_messages', 0)}")
+    lines.append(f"Message types: {s.get('message_types', 0)}")
+    lines.append(f"Duration: {s.get('duration_seconds')} seconds" if s.get("duration_seconds") is not None else "Duration: unknown")
+    lines.append(f"Mode changes: {s.get('mode_changes', 0)} | Events: {s.get('events', 0)}")
+    counts = log_data.get("message_counts", {})
+    if counts:
+        lines.append("\nMessage breakdown (top 15):")
+        for mtype, count in list(counts.items())[:15]:
+            lines.append(f"  {mtype}: {count}")
+    mode_changes = log_data.get("mode_changes", [])[:20]
+    if mode_changes:
+        lines.append("\nMode changes:")
+        for mc in mode_changes:
+            name = mc.get("mode_name", mc.get("mode", "?"))
+            ts = mc.get("time_s") or mc.get("time_boot_ms")
+            lines.append(f"  t={ts} → {name}")
+    events = log_data.get("events", [])[:25]
+    if events:
+        lines.append("\nRecent events/status:")
+        for ev in events:
+            lines.append(f"  [{ev.get('type')}] {ev.get('text', '')[:80]}")
+    context = "\n".join(lines)
+    user_question = (
+        "Interpret this ArduPilot flight log parsing result for the pilot in 3–6 short sentences. "
+        "Explain what the log contains (message types, duration, mode changes, events), whether it looks normal, "
+        "and any suggestions (e.g. what to check, or that more data would help). Be clear and concise.\n\n"
+        f"{context[:3000]}"
+    )
+    return get_ai_response(
+        user_question,
+        param_db=[],
+        prefer_provider=prefer_provider,
+    )

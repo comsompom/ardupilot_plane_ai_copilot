@@ -30,6 +30,7 @@ PARAM_DB_SQLITE = DATA_DIR / "params.db"
 
 # RAG / AI
 EMBEDDINGS_MODEL = os.getenv("EMBEDDINGS_MODEL", "all-MiniLM-L6-v2")
+# Local LLM: set in .env. See LOCAL_LLM_GUIDE.md for recommended models (llama3.2, qwen2.5:7b, mistral, phi3, etc.)
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))

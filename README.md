@@ -62,7 +62,7 @@ If you skip this, the app uses the built-in minimal param list in `data/params.j
   When the key is set and the app can reach the API, the assistant uses OpenAI (default model: `gpt-4o-mini`; override with `OPENAI_MODEL`).
 
 - **Ollama (offline)**  
-  Install [Ollama](https://ollama.com) and run a model, e.g. `ollama run llama3.2`. Leave it running; the app uses it when OpenAI is not used or fails (e.g. no internet).
+  Install [Ollama](https://ollama.com), pull a model (e.g. `ollama pull llama3.2`), and set `OLLAMA_MODEL` in `.env` if needed. See **[LOCAL_LLM_GUIDE.md](LOCAL_LLM_GUIDE.md)** for recommended models, step-by-step setup, and how the app uses the parameter knowledge base with the local LLM.
 
 Without either, the assistant uses a keyword-based fallback.
 

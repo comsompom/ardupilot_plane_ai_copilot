@@ -6,6 +6,10 @@
 
 **HACKHAZARDS '26** — AI-powered assistant for ArduPilot Plane pilots: parameter comparison, flight-mode reports, mission & flight log analysis, and offline AI chat.
 
+### Video demo
+
+**[Watch the demo on YouTube](https://www.youtube.com/watch?v=y0hJp2pBllg)**
+
 ## Features
 
 - **Parameter comparison**: Compare your current ArduPilot parameters against recommended sets for **Manual**, **FBWA**, **AUTO** (waypoints), and **Autotune** (PID).

@@ -4,7 +4,7 @@
   <img src="ai_copilot_logo.jpg" alt="ArduPilot AI Assistant logo" width="200">
 </p>
 
-**HACKHAZARDS '26** — AI-powered assistant for ArduPilot Plane pilots: parameter comparison, flight-mode reports, mission & flight log analysis, and offline AI chat.
+**AI-powered assistant for ArduPilot Plane pilots**: parameter comparison, flight-mode reports, mission & flight log analysis, and offline AI chat.
 
 ### Video demo
 
@@ -123,12 +123,6 @@ ardupilot_plane_ai_copilot/
 └── README.md
 ```
 
-## Hackathon alignment
-
-- **Track**: AI (LLM + knowledge base) and Software Engineering (full-stack, Flask).
-- **Deliverables**: Working prototype (param comparison, 4 reports, export, AI assistant, mission/log analysis), public repo, demo video, Built With, team info.
-- **Rules**: Built during hackathon period; no plagiarism; proper disclosure of used libraries.
-
 ## License
 
-Use and modify as needed for the hackathon. See repository LICENSE if present.
+Will be added soon

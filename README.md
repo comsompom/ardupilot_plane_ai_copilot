@@ -119,9 +119,12 @@ ardupilot_plane_ai_copilot/
 ├── run_standalone.py   # Run standalone desktop app
 ├── run_web.py         # Run Flask web app
 ├── requirements.txt
+├── LICENSE
 └── README.md
 ```
 
 ## License
 
-Will be added soon
+This project is released under the [MIT License](LICENSE): free to use, modify, and distribute, including commercially. You must **keep the copyright notice and license text** in copies and derivative works so the **maintainers are credited** as required by the license.
+
+See [`LICENSE`](LICENSE) for the full text.

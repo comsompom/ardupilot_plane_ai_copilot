@@ -1,12 +1,12 @@
-# Project Story — ArduPilot AI Assistant (Plane Drone AI Copilot)
+# Project background — ArduPilot AI Assistant (Plane Drone AI Copilot)
 
-*Use the content below to fill the submission form. Copy each section as needed; the story is in Markdown with optional LaTeX for math.*
+Internal notes on motivation, design, and history. Markdown with optional LaTeX for math.
 
 ---
 
 ## Inspiration
 
-We were inspired by the need for safer, better-configured flights for ArduPilot Plane and drone pilots. Pre-flight parameter checks are often manual and error-prone, and pilots don’t always have internet for cloud-based assistants. We wanted an **AI-powered copilot** that could compare parameters against recommended sets, interpret mission and flight logs, and answer questions about Manual, FBWA, AUTO, and Autotune—**online or offline**. HACKHAZARDS '26’s focus on AI (LLM + knowledge base) and full-stack software aligned perfectly with building a single core that powers both a **desktop app** and a **web app**, so pilots can choose how they work.
+We were inspired by the need for safer, better-configured flights for ArduPilot Plane and drone pilots. Pre-flight parameter checks are often manual and error-prone, and pilots don’t always have internet for cloud-based assistants. We wanted an **AI-powered copilot** that could compare parameters against recommended sets, interpret mission and flight logs, and answer questions about Manual, FBWA, AUTO, and Autotune—**online or offline**. We built a **single core** that powers both a **desktop app** and a **web app**, so pilots can choose how they work in the field or at the bench.
 
 ---
 

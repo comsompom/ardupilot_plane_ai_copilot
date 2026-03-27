@@ -119,7 +119,6 @@ ardupilot_plane_ai_copilot/
 ├── run_standalone.py   # Run standalone desktop app
 ├── run_web.py         # Run Flask web app
 ├── requirements.txt
-├── PLAN.md
 └── README.md
 ```
 
